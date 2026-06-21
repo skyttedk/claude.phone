@@ -7,7 +7,7 @@
   "mcpServers": {
     "claude-phone": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/src/server.js"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/start-server.js"]
     }
   },
   "hooks": {

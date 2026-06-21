@@ -121,16 +121,16 @@ fails on machines without GitHub SSH keys configured):
 /plugin install claude-phone@claude-phone
 ```
 
-Then install the native dependency (`node-datachannel`) in the cloned
-marketplace — plugins ship source only and do **not** run `npm install` for you:
+Restart Claude Code so the MCP server and Stop hook load. On its **first**
+launch the bootstrap (`scripts/start-server.js`) installs the native
+`node-datachannel` dependency automatically — plugins don't run `npm install`,
+so the server does it itself. This first run can take a while; if the MCP
+server times out, just restart once (deps will be in place by then).
 
-```sh
-cd ~/.claude/plugins/marketplaces/skyttedk-claude-phone
-npm install
-```
+Update later with `/plugin marketplace update claude-phone`.
 
-Restart Claude Code so the MCP server and Stop hook load. Update later with
-`/plugin marketplace update claude-phone` (re-run `npm install` if deps changed).
+> Fallback: if the auto-install fails (e.g. `npm` not on PATH), install deps
+> by hand: `cd ~/.claude/plugins/marketplaces/skyttedk-claude-phone && npm install`.
 
 ## Notes & limits
 
