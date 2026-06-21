@@ -111,12 +111,26 @@ them you get real-time agent-to-agent chat.
 
 The repo doubles as a single-plugin marketplace, bundling the MCP server, the
 `/invite` `/join` `/confirm` `/send` `/inbox` `/listen` `/p2p-status` commands,
-and the Stop hook:
+and the Stop hook.
+
+Use the **full HTTPS URL** (the `owner/repo` shorthand defaults to SSH, which
+fails on machines without GitHub SSH keys configured):
+
+```
+/plugin marketplace add https://github.com/skyttedk/claude.phone.git
+/plugin install claude-phone@claude-phone
+```
+
+Then install the native dependency (`node-datachannel`) in the cloned
+marketplace — plugins ship source only and do **not** run `npm install` for you:
 
 ```sh
-/plugin marketplace add <this-repo>
-/plugin install claude-phone
+cd ~/.claude/plugins/marketplaces/skyttedk-claude-phone
+npm install
 ```
+
+Restart Claude Code so the MCP server and Stop hook load. Update later with
+`/plugin marketplace update claude-phone` (re-run `npm install` if deps changed).
 
 ## Notes & limits
 
