@@ -11,7 +11,12 @@
  */
 const WebSocket = require('ws');
 
-const HANDSHAKE_TIMEOUT_MS = Number(process.env.CLAUDE_PHONE_SIGNAL_TIMEOUT_MS || 30000);
+// Window for the two agents to rendezvous. Generous by default: a human often
+// relays the code between two Claude sessions by hand, and each tool call can add
+// ~30s of latency, so a tight window expires before the peers ever meet.
+// Override with CLAUDE_PHONE_SIGNAL_TIMEOUT_MS.
+const HANDSHAKE_TIMEOUT_MS = Number(process.env.CLAUDE_PHONE_SIGNAL_TIMEOUT_MS || 180000);
+// Relay round-trip acks (room created / join ack) are server-to-client and fast.
 const CODE_TIMEOUT_MS = 10000;
 
 function connect(url) {
