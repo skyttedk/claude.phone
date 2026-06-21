@@ -1,6 +1,6 @@
 {
   "name": "claude-phone",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Serverless P2P link between two AI-agent sessions, with event-driven receive (background watcher + Stop hook) and an optional autonomous responder.",
   "author": { "name": "skyttedk" },
   "commands": "./.claude/commands",
