@@ -67,6 +67,30 @@ The invite/reply blobs are ~1.3 KB base64 strings. Paste the whole thing.
 > Under the hood these are the standard WebRTC *offer* / *answer* — `invite`/`reply`
 > are just friendlier names for the same handshake.
 
+## Connect by code (signaling) — recommended
+
+Pasting 1.3 KB blobs by hand is the main friction. Run the bundled
+[`signal-server/`](signal-server/) (a tiny WebSocket matchmaker) and set
+`CLAUDE_PHONE_SIGNAL_URL`, and the handshake collapses to a short **code**:
+
+```
+Agent A:  p2p_invite            -> "INVITE code: vy5827"   (share the code)
+Agent B:  p2p_join vy5827       -> connects automatically
+Both:     p2p_status            -> "open": true            (no p2p_confirm needed)
+```
+
+The relay only brokers the SDP/ICE handshake; once connected, messages flow
+**directly P2P** and never touch it — so one public instance is safe to share.
+Set the URL in the plugin's MCP env (or your `.mcp.json`):
+
+```json
+"env": { "CLAUDE_PHONE_SIGNAL_URL": "wss://your-app.up.railway.app" }
+```
+
+Without `CLAUDE_PHONE_SIGNAL_URL`, the server stays in blob mode (above) — the
+fully serverless fallback. See [`signal-server/README.md`](signal-server/README.md)
+for the Railway deploy.
+
 ## Real-time receive (no manual polling)
 
 MCP can't push into the agent loop, so a naive setup means calling `p2p_inbox`
@@ -148,6 +172,8 @@ Update later with `/plugin marketplace update claude-phone`.
 
 - `src/P2PChannel.js` — the reusable serverless WebRTC transport (no MCP).
 - `src/server.js` — the MCP server wrapping it as tools.
+- `src/SignalClient.js` — connect-by-code handshake over the relay (opt-in).
+- `signal-server/` — the WebSocket matchmaker (deploy to Railway).
 - `src/state.js` — mirrors inbound messages to `pending.json` (the receive bridge).
 - `src/autoresponder.js` — Architecture B: headless-Claude autonomous replies.
 - `scripts/wait-for-message.js` — Architecture A: background watcher (the wake).

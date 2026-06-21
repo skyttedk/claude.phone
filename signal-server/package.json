@@ -1,0 +1,17 @@
+{
+  "name": "claude-phone-signal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Signaling/matchmaking relay for claude.phone WebRTC handshakes. Relays SDP/ICE only; the P2P data never passes through it.",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

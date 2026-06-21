@@ -25,9 +25,14 @@ const { P2PChannel } = require('./P2PChannel');
 const state = require('./state');
 const { maybeCreate } = require('./autoresponder');
 
+// Optional signaling relay: connect by short code instead of pasting blobs.
+const SIGNAL_URL = process.env.CLAUDE_PHONE_SIGNAL_URL || null;
+const signaling = SIGNAL_URL ? require('./SignalClient') : null;
+
 // ---- Single-channel session state -----------------------------------------
 // One server instance hosts one P2P channel (one conversation partner).
 let channel = null;
+let signalWs = null; // active relay socket during a signaling handshake
 const inbox = []; // received messages awaiting p2p_inbox drain
 const events = []; // recent state-change log for diagnostics
 
@@ -98,6 +103,23 @@ server.registerTool(
         try {
             if (channel) return errorText('A channel already exists. Call p2p_reset first to start over.');
             channel = newChannel();
+
+            if (signaling) {
+                // Signaling mode: return a short code; the handshake auto-completes.
+                const { code, ws, done } = await signaling.host({
+                    url: SIGNAL_URL,
+                    channel,
+                    onLog: logEvent,
+                });
+                signalWs = ws;
+                done.catch((e) => logEvent('signal handshake failed: ' + e.message));
+                return text(
+                    'INVITE code: ' + code + '\n\nGive this code to the other agent — they ' +
+                    'run p2p_join with it. No reply blob and no p2p_confirm needed: poll ' +
+                    'p2p_status until "open": true.'
+                );
+            }
+
             const invite = await channel.createOffer();
             return text(
                 'INVITE created. Send this blob to the other agent, then wait for their reply ' +
@@ -115,15 +137,36 @@ server.registerTool(
     {
         title: 'Join via invite (responder)',
         description:
-            'RESPONDER. Takes the INITIATOR\'s invite blob and returns a base64 reply blob. ' +
-            'Give the reply back to the initiator (who runs p2p_confirm). The data channel ' +
-            'opens shortly after.',
-        inputSchema: { invite: z.string().describe('The base64 invite blob from the initiator') },
+            'RESPONDER. In signaling mode pass the short CODE from the initiator; the ' +
+            'handshake completes automatically (poll p2p_status). In blob mode pass the ' +
+            'initiator\'s base64 invite blob and this returns a reply blob to give back.',
+        inputSchema: {
+            invite: z
+                .string()
+                .describe('Signaling mode: the short connect code. Blob mode: the base64 invite blob.'),
+        },
     },
     async ({ invite }) => {
         try {
             if (channel) return errorText('A channel already exists. Call p2p_reset first to start over.');
             channel = newChannel();
+
+            if (signaling) {
+                const code = invite.trim().toLowerCase();
+                const { ws, done } = await signaling.join({
+                    url: SIGNAL_URL,
+                    code,
+                    channel,
+                    onLog: logEvent,
+                });
+                signalWs = ws;
+                done.catch((e) => logEvent('signal handshake failed: ' + e.message));
+                return text(
+                    'Joining via code "' + code + '"... no reply blob needed. Poll p2p_status ' +
+                    'until "open": true, then use p2p_send / p2p_inbox.'
+                );
+            }
+
             const reply = await channel.acceptOffer(invite);
             return text(
                 'INVITE accepted. Send this REPLY blob back to the initiator:\n\n' + reply +
@@ -147,6 +190,12 @@ server.registerTool(
     },
     async ({ reply }) => {
         try {
+            if (signaling) {
+                return text(
+                    'Not needed in signaling mode — the handshake completes automatically. ' +
+                    'Poll p2p_status until "open": true.'
+                );
+            }
             if (!channel) return errorText('No channel in progress. Call p2p_invite first.');
             if (channel.role !== 'initiator') return errorText('Only the initiator calls p2p_confirm.');
             channel.acceptAnswer(reply);
@@ -215,6 +264,7 @@ server.registerTool(
         inputSchema: {},
     },
     async () => {
+        if (signalWs) { try { signalWs.close(); } catch (_) {} signalWs = null; }
         if (channel) { try { channel.dispose(); } catch (_) {} }
         channel = null;
         inbox.length = 0;
@@ -232,12 +282,14 @@ async function main() {
     // stderr is safe for logs; stdout is reserved for the MCP protocol.
     process.stderr.write(
         '[claude.phone] MCP server ready on stdio' +
+            (signaling ? ' (signaling: ' + SIGNAL_URL + ')' : ' (blob mode)') +
             (autoResponder ? ' (autorespond ON)' : '') +
             '\n'
     );
 }
 
 function shutdown() {
+    if (signalWs) { try { signalWs.close(); } catch (_) {} }
     if (channel) { try { channel.dispose(); } catch (_) {} }
     try { ndc.cleanup(); } catch (_) {}
     process.exit(0);
