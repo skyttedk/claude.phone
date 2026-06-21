@@ -1,0 +1,11 @@
+{
+  "name": "claude-phone",
+  "owner": { "name": "skyttedk" },
+  "plugins": [
+    {
+      "name": "claude-phone",
+      "source": ".",
+      "description": "Serverless P2P transport between two AI-agent sessions (MCP server + event-driven receive + autonomous responder)."
+    }
+  ]
+}

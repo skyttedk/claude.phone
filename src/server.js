@@ -22,6 +22,8 @@ const ndc = require('node-datachannel');
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { P2PChannel } = require('./P2PChannel');
+const state = require('./state');
+const { maybeCreate } = require('./autoresponder');
 
 // ---- Single-channel session state -----------------------------------------
 // One server instance hosts one P2P channel (one conversation partner).
@@ -34,12 +36,30 @@ function logEvent(msg) {
     if (events.length > 50) events.shift();
 }
 
+// Architecture B: autonomous responder (null unless CLAUDE_PHONE_AUTORESPOND set).
+const autoResponder = maybeCreate({
+    send: (m) => {
+        if (channel) channel.send(m);
+    },
+    log: logEvent,
+});
+
 function newChannel() {
     return new P2PChannel({
         onMessage: (text) => {
             inbox.push({ t: new Date().toISOString(), text });
+            // Architecture A bridge: mirror unread messages to disk so the
+            // background watcher / Stop hook (separate processes) can see them.
+            state.writePending(inbox);
+            if (autoResponder) {
+                // Architecture B: the headless agent owns this reply. Hand it off
+                // and drop it from the interactive inbox to avoid double-handling.
+                autoResponder.handle(text);
+                inbox.length = 0;
+                state.clearPending();
+            }
         },
-        onStateChange: (state) => logEvent('state: ' + state),
+        onStateChange: (s) => logEvent('state: ' + s),
     });
 }
 
@@ -167,6 +187,7 @@ server.registerTool(
     async () => {
         if (inbox.length === 0) return text('(no new messages)');
         const drained = inbox.splice(0, inbox.length);
+        state.clearPending(); // keep the on-disk mirror in sync for the watcher
         const rendered = drained.map((m) => '[' + m.t + '] ' + m.text).join('\n');
         return text(drained.length + ' message(s):\n' + rendered);
     }
@@ -198,16 +219,22 @@ server.registerTool(
         channel = null;
         inbox.length = 0;
         events.length = 0;
+        state.clearPending();
         return text('Channel reset. Ready for a new connection.');
     }
 );
 
 // ---- Boot ------------------------------------------------------------------
 async function main() {
+    state.clearPending(); // drop any stale mirror from a previous run
     const transport = new StdioServerTransport();
     await server.connect(transport);
     // stderr is safe for logs; stdout is reserved for the MCP protocol.
-    process.stderr.write('[claude.phone] MCP server ready on stdio\n');
+    process.stderr.write(
+        '[claude.phone] MCP server ready on stdio' +
+            (autoResponder ? ' (autorespond ON)' : '') +
+            '\n'
+    );
 }
 
 function shutdown() {

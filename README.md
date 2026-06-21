@@ -67,11 +67,62 @@ The invite/reply blobs are ~1.3 KB base64 strings. Paste the whole thing.
 > Under the hood these are the standard WebRTC *offer* / *answer* — `invite`/`reply`
 > are just friendlier names for the same handshake.
 
+## Real-time receive (no manual polling)
+
+MCP can't push into the agent loop, so a naive setup means calling `p2p_inbox`
+by hand. Two mechanisms remove that — pick one or use both.
+
+The server mirrors every inbound message to a small `pending.json` file (in
+`$CLAUDE_PHONE_STATE_DIR`, default `<tmp>/claude-phone`). Separate processes
+that can't call MCP tools watch that file.
+
+### Architecture A — background watcher (live session, ~0 idle cost)
+
+`scripts/wait-for-message.js` blocks in a plain Node process (no model tokens)
+until a message lands, then exits. Claude Code re-invokes the agent when a
+**backgrounded** command finishes — so that exit is the "onmessage" wake. The
+agent drains `p2p_inbox`, replies, and relaunches the watcher.
+
+Drive it with the `/listen` command. Event-driven, sub-second, near-zero idle
+cost — but the watcher lives in the session, so it ends when the session closes.
+
+A `Stop` hook (`scripts/check-inbox.js`, wired by the plugin) complements this:
+it blocks the agent from going idle while messages are still unread.
+
+### Architecture B — autonomous responder (always-on, no session)
+
+Run the server with `CLAUDE_PHONE_AUTORESPOND=1` (or double-click
+`autorespond.cmd`). On each inbound message it spawns a headless `claude -p`
+run to compose a reply and sends it back automatically — a self-answering agent
+endpoint that needs no interactive session.
+
+| Env | Purpose |
+|-----|---------|
+| `CLAUDE_PHONE_AUTORESPOND` | Any value enables autonomous replies. |
+| `CLAUDE_PHONE_CLAUDE_BIN` | Path to the `claude` CLI (default `claude`). |
+| `CLAUDE_PHONE_PERSONA` | Optional framing for the agent's voice. |
+| `CLAUDE_PHONE_STATE_DIR` | Where `pending.json` lives (server + watcher must agree). |
+
+**The one thing neither solves:** waking a *fully closed* session from outside.
+A wakes a live-but-idle session; B answers without a session at all. Between
+them you get real-time agent-to-agent chat.
+
+## Install as a plugin
+
+The repo doubles as a single-plugin marketplace, bundling the MCP server, the
+`/invite` `/join` `/confirm` `/send` `/inbox` `/listen` `/p2p-status` commands,
+and the Stop hook:
+
+```sh
+/plugin marketplace add <this-repo>
+/plugin install claude-phone
+```
+
 ## Notes & limits
 
-- **Polling for messages:** MCP is request/response, so there's no push into the
-  agent loop. Call `p2p_inbox` to read what arrived. `p2p_status` shows a pending
-  count.
+- **Receiving messages:** MCP has no native push, but the watcher (Architecture A)
+  and autonomous responder (Architecture B) above make receive event-driven. The
+  raw `p2p_inbox` / `p2p_status` polling path still works as a fallback.
 - **One peer per server instance.** A server hosts a single channel. Use
   `p2p_reset` to start a new conversation.
 - **Symmetric / strict NAT:** STUN alone can fail behind some NATs; a real
@@ -83,5 +134,11 @@ The invite/reply blobs are ~1.3 KB base64 strings. Paste the whole thing.
 
 - `src/P2PChannel.js` — the reusable serverless WebRTC transport (no MCP).
 - `src/server.js` — the MCP server wrapping it as tools.
+- `src/state.js` — mirrors inbound messages to `pending.json` (the receive bridge).
+- `src/autoresponder.js` — Architecture B: headless-Claude autonomous replies.
+- `scripts/wait-for-message.js` — Architecture A: background watcher (the wake).
+- `scripts/check-inbox.js` — Stop hook: blocks idle while messages are unread.
+- `.claude/commands/` — `/invite` `/join` `/confirm` `/send` `/inbox` `/listen` `/p2p-status`.
+- `.claude-plugin/` — plugin + marketplace manifests.
 - `test/loopback.js` — full 2-peer handshake + message exchange in one process.
 - `test/mcp-smoke.js` — boots the MCP server and exercises the tool surface.

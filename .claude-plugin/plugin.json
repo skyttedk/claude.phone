@@ -1,0 +1,26 @@
+{
+  "name": "claude-phone",
+  "version": "1.0.0",
+  "description": "Serverless P2P link between two AI-agent sessions, with event-driven receive (background watcher + Stop hook) and an optional autonomous responder.",
+  "author": { "name": "skyttedk" },
+  "commands": "./.claude/commands",
+  "mcpServers": {
+    "claude-phone": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/src/server.js"]
+    }
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/check-inbox.js"
+          }
+        ]
+      }
+    ]
+  }
+}
