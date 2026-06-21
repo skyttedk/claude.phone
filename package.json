@@ -1,0 +1,21 @@
+{
+  "name": "claude.phone",
+  "version": "1.0.0",
+  "description": "Serverless peer-to-peer WebRTC transport (MCP server) that lets two AI-agent sessions on different machines talk directly. No signaling server — SDP handshake blobs are copy-pasted between sessions; Google STUN for NAT traversal.",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "bin": {
+    "claude-phone": "src/server.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node test/loopback.js && node test/mcp-smoke.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "node-datachannel": "^0.32.3",
+    "zod": "^4.4.3"
+  }
+}
