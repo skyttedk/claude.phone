@@ -10,7 +10,9 @@ const { P2PChannel } = require('../src/P2PChannel');
 const signaling = require('../src/SignalClient');
 
 const PORT = 8097;
-const URL = 'ws://127.0.0.1:' + PORT;
+// Use a live relay if CLAUDE_PHONE_SIGNAL_URL is set; otherwise boot a local one.
+const LIVE_URL = process.env.CLAUDE_PHONE_SIGNAL_URL || null;
+const URL = LIVE_URL || 'ws://127.0.0.1:' + PORT;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function waitOpen(ch, ms = 20000) {
@@ -27,11 +29,16 @@ function waitOpen(ch, ms = 20000) {
 }
 
 async function main() {
-    const srv = spawn('node', [path.join(__dirname, '..', 'signal-server', 'server.js')], {
-        env: { ...process.env, PORT: String(PORT) },
-        stdio: 'ignore',
-    });
-    await sleep(600);
+    let srv = null;
+    if (!LIVE_URL) {
+        srv = spawn('node', [path.join(__dirname, '..', 'signal-server', 'server.js')], {
+            env: { ...process.env, PORT: String(PORT) },
+            stdio: 'ignore',
+        });
+        await sleep(600);
+    } else {
+        process.stdout.write('using live relay: ' + LIVE_URL + '\n');
+    }
 
     let failed = false;
     const got = [];
@@ -61,7 +68,7 @@ async function main() {
     } finally {
         try { A.dispose(); } catch (_) {}
         try { B.dispose(); } catch (_) {}
-        srv.kill();
+        if (srv) srv.kill();
     }
 
     process.stdout.write('\nRESULT: ' + (failed ? 'FAIL' : 'PASS ✓') + '\n');

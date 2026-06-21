@@ -84,12 +84,13 @@ The relay only brokers the SDP/ICE handshake; once connected, messages flow
 Set the URL in the plugin's MCP env (or your `.mcp.json`):
 
 ```json
-"env": { "CLAUDE_PHONE_SIGNAL_URL": "wss://your-app.up.railway.app" }
+"env": { "CLAUDE_PHONE_SIGNAL_URL": "wss://claude-phone-signal-production.up.railway.app" }
 ```
 
-Without `CLAUDE_PHONE_SIGNAL_URL`, the server stays in blob mode (above) — the
-fully serverless fallback. See [`signal-server/README.md`](signal-server/README.md)
-for the Railway deploy.
+The plugin ships with this public relay preconfigured, so signaling works out of
+the box. Without `CLAUDE_PHONE_SIGNAL_URL`, the server falls back to blob mode
+(above) — fully serverless. See [`signal-server/README.md`](signal-server/README.md)
+to deploy your own relay.
 
 ## Real-time receive (no manual polling)
 

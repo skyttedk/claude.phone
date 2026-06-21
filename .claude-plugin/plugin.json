@@ -7,7 +7,10 @@
   "mcpServers": {
     "claude-phone": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/start-server.js"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/start-server.js"],
+      "env": {
+        "CLAUDE_PHONE_SIGNAL_URL": "wss://claude-phone-signal-production.up.railway.app"
+      }
     }
   },
   "hooks": {
