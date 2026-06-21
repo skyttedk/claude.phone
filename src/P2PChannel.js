@@ -32,6 +32,19 @@ const STUN_SERVERS = [
 
 const ICE_GATHER_TIMEOUT_MS = 15000;
 
+// Keepalive: STUN-only data channels have no TURN fallback and node-datachannel
+// sends no application traffic on its own, so an idle UDP NAT mapping can expire
+// after a few minutes and silently kill the link. We send a tiny control-frame
+// ping on an interval to keep the mapping warm, and a watchdog closes the channel
+// if no inbound frame (ping, pong, or real message) arrives within the timeout.
+const KEEPALIVE_INTERVAL_MS = Number(process.env.CLAUDE_PHONE_KEEPALIVE_MS || 20000);
+const KEEPALIVE_TIMEOUT_MS = Number(process.env.CLAUDE_PHONE_KEEPALIVE_TIMEOUT_MS || 70000);
+// Control frames start with a NUL sentinel so they can't collide with real
+// agent text; they are answered/consumed internally and never surface to callers.
+const CTRL_PREFIX = '\x00cp:';
+const CTRL_PING = CTRL_PREFIX + 'ping';
+const CTRL_PONG = CTRL_PREFIX + 'pong';
+
 function encodeDescription(desc) {
     // desc = { type: 'offer'|'answer', sdp: '...' }
     return Buffer.from(JSON.stringify(desc), 'utf8').toString('base64');
@@ -66,6 +79,10 @@ class P2PChannel {
         this.localPeerName = opts.peerName || null;
         this.remotePeerName = null;
         this.disposed = false;
+
+        this._keepaliveTimer = null;
+        this._livenessTimer = null;
+        this._lastInbound = 0;
 
         this.stats = { sent: 0, received: 0, bytesIn: 0, bytesOut: 0 };
     }
@@ -103,23 +120,69 @@ class P2PChannel {
         this.dc = dc;
 
         dc.onOpen(() => {
+            this._startKeepalive();
             this.onStateChange('channel-open');
         });
 
         dc.onMessage((msg) => {
             const text = typeof msg === 'string' ? msg : String(msg);
+            // Any inbound frame proves the peer is alive and the path is open.
+            this._lastInbound = Date.now();
+            if (text.startsWith(CTRL_PREFIX)) {
+                // Reply to a ping; consume pongs silently. Control frames never
+                // reach onMessage or the stats — they are pure liveness traffic.
+                if (text === CTRL_PING) {
+                    try { if (this.isOpen()) this.dc.sendMessage(CTRL_PONG); } catch (_) {}
+                }
+                return;
+            }
             this.stats.received++;
             this.stats.bytesIn += Buffer.byteLength(text, 'utf8');
             this.onMessage(text);
         });
 
         dc.onClosed(() => {
+            this._stopKeepalive();
             this.onStateChange('channel-closed');
         });
 
         dc.onError((err) => {
             this.onStateChange('channel-error:' + err);
         });
+    }
+
+    /**
+     * Begin sending keepalive pings and watching for peer silence. Idempotent:
+     * any prior timers are cleared first. Timers are unref'd so they never keep
+     * the host process alive on their own.
+     */
+    _startKeepalive() {
+        this._stopKeepalive();
+        this._lastInbound = Date.now();
+
+        this._keepaliveTimer = setInterval(() => {
+            try {
+                if (this.isOpen()) this.dc.sendMessage(CTRL_PING);
+            } catch (_) {
+                // Channel went away mid-send; the liveness watchdog will close it.
+            }
+        }, KEEPALIVE_INTERVAL_MS);
+        if (this._keepaliveTimer.unref) this._keepaliveTimer.unref();
+
+        this._livenessTimer = setInterval(() => {
+            if (this._lastInbound && Date.now() - this._lastInbound > KEEPALIVE_TIMEOUT_MS) {
+                this.onStateChange('keepalive-timeout');
+                this._stopKeepalive();
+                try { if (this.dc) this.dc.close(); } catch (_) {}
+            }
+        }, KEEPALIVE_INTERVAL_MS);
+        if (this._livenessTimer.unref) this._livenessTimer.unref();
+    }
+
+    /** Stop all keepalive/liveness timers. Safe to call repeatedly. */
+    _stopKeepalive() {
+        if (this._keepaliveTimer) { clearInterval(this._keepaliveTimer); this._keepaliveTimer = null; }
+        if (this._livenessTimer) { clearInterval(this._livenessTimer); this._livenessTimer = null; }
     }
 
     /**
@@ -233,6 +296,7 @@ class P2PChannel {
     dispose() {
         if (this.disposed) return;
         this.disposed = true;
+        this._stopKeepalive();
         try { if (this.dc) this.dc.close(); } catch (_) {}
         try { if (this.pc) this.pc.close(); } catch (_) {}
         this.dc = null;
